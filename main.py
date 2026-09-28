@@ -81,7 +81,6 @@ def _migrate_legacy(cfg: dict) -> dict:
     return {
         "accounts": accounts,
         "schedule": cfg.get("schedule", {}),
-        "notify": cfg.get("notify", {}),
         "current": sid,
     }
 
@@ -565,56 +564,6 @@ def cancel_booking(cfg: dict, booking_id, student_id: str = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 通知
-# ---------------------------------------------------------------------------
-def _notify_email(e: dict, title: str, content: str) -> None:
-    import smtplib
-    from email.mime.text import MIMEText
-    msg = MIMEText(content, "plain", "utf-8")
-    msg["Subject"] = title
-    msg["From"] = e.get("sender", "")
-    msg["To"] = e.get("receiver", "")
-    host = e.get("smtp_host", "smtp.qq.com")
-    port = int(e.get("smtp_port", 465))
-    if port == 465:
-        server = smtplib.SMTP_SSL(host, port, timeout=10)
-    else:
-        server = smtplib.SMTP(host, port, timeout=10)
-        server.starttls()
-    try:
-        server.login(e.get("sender", ""), e.get("password", ""))
-        server.sendmail(e.get("sender", ""), [e.get("receiver", "")], msg.as_string())
-    finally:
-        server.quit()
-
-
-def sid_prefix(cfg: dict) -> str:
-    """通知前缀: 标注是哪个学号的预约结果。"""
-    return "[学号%s] " % current_student_id(cfg)
-
-
-def notify(cfg: dict, title: str, content: str) -> None:
-    n = cfg.get("notify", {})
-    method = n.get("method", "")
-    try:
-        if method == "serverchan" and n.get("serverchan_key"):
-            body = urllib.parse.urlencode({"title": title, "desp": content}).encode()
-            urllib.request.urlopen(
-                "https://sctapi.ftqq.com/%s.send" % n["serverchan_key"],
-                data=body, timeout=10)
-        elif method == "dingtalk" and n.get("dingtalk_webhook"):
-            payload = json.dumps({"msgtype": "text",
-                                  "text": {"content": "%s\n%s" % (title, content)}}).encode()
-            req = urllib.request.Request(n["dingtalk_webhook"], data=payload,
-                                         headers={"Content-Type": "application/json"})
-            urllib.request.urlopen(req, timeout=10)
-        elif method == "email" and n.get("email"):
-            _notify_email(n["email"], title, content)
-    except Exception as exc:
-        log("[通知失败] %s" % exc)
-
-
-# ---------------------------------------------------------------------------
 # 命令: 查询座位 / 立即预约 / 我的列表 / 取消
 # ---------------------------------------------------------------------------
 def ts_of(days_ahead: int, hour: int) -> int:
@@ -734,13 +683,8 @@ def cmd_book(cfg: dict, days_ahead: int = 1) -> int:
             data = result.get("DATA", {}) if isinstance(result, dict) else {}
             if data.get("result") == "success":
                 ok += 1
-                notify(cfg, "预约成功", "%s%s座 %s-%s\nbookingId=%s" % (
-                    sid_prefix(cfg), t.get("seat_num", ""), t.get("start", ""),
-                    t.get("end", ""), data.get("bookingId")))
             else:
-                notify(cfg, "预约失败", "%s%s座 %s-%s\n原因: %s" % (
-                    sid_prefix(cfg), t.get("seat_num", ""), t.get("start", ""),
-                    t.get("end", ""), explain_failure(result)))
+                log("  失败原因: %s" % explain_failure(result))
         log("完成: %d/%d 个任务预约成功" % (ok, len(tasks)))
         return 0
 
@@ -752,19 +696,11 @@ def cmd_book(cfg: dict, days_ahead: int = 1) -> int:
     seat = pick_best_seat(cfg, seats)
     if not seat:
         log("[失败] 没有可用座位")
-        notify(cfg, "预约失败", "%s没有可用座位" % sid_prefix(cfg))
         return 1
     log("选中座位 id=%s 座号=%s" % (seat.get("id"), seat.get("title")))
     result = do_book(cfg, begin, dur, seat.get("id"))
     msg = json.dumps(result, ensure_ascii=False)
     log("预约结果: %s" % msg[:300])
-    data = result.get("DATA", {}) if isinstance(result, dict) else {}
-    if data.get("result") == "success":
-        notify(cfg, "预约成功", "%s%s座 bookingId=%s" % (
-            sid_prefix(cfg), seat.get("title"), data.get("bookingId")))
-    else:
-        notify(cfg, "预约失败", "%s%s座\n原因: %s" % (
-            sid_prefix(cfg), seat.get("title"), explain_failure(result)))
     return 0
 
 
@@ -813,13 +749,6 @@ def cmd_now(cfg: dict) -> int:
         msg = json.dumps(result, ensure_ascii=False)
         log("  结果: %s" % msg[:250])
         warn_if_expired(result)
-        data = result.get("DATA", {}) if isinstance(result, dict) else {}
-        if data.get("result") == "success":
-            notify(cfg, "即刻预约成功", "%s%s座 %s-%s\nbookingId=%s" % (
-                sid_prefix(cfg), seat_num, s, e, data.get("bookingId")))
-        else:
-            notify(cfg, "即刻预约失败", "%s%s座 %s-%s\n原因: %s" % (
-                sid_prefix(cfg), seat_num, s, e, explain_failure(result)))
     return 0
 
 
@@ -993,21 +922,12 @@ def run_scheduler(cfg: dict) -> int:
                         t.get("seat_num", ""), t.get("start", ""), t.get("end", ""),
                         attempt + 1, msg[:200]))
                     if is_login_expired(result):
-                        notify(cfg, "登录失效", "%sauth/uid 已过期, 请重新抓包并运行 --import"
-                               % sid_prefix(cfg))
                         expired = True
                         break
                     data = result.get("DATA", {}) if isinstance(result, dict) else {}
                     if data.get("result") == "success":
-                        notify(cfg, "抢座成功", "%s%s座 %s-%s" % (
-                            sid_prefix(cfg), t.get("seat_num", ""), t.get("start", ""),
-                            t.get("end", "")))
                         break
                     time.sleep(interval)
-                else:
-                    notify(cfg, "抢座失败", "%s%s座 %s-%s 重试%d次未成功\n原因: %s" % (
-                        sid_prefix(cfg), t.get("seat_num", ""), t.get("start", ""),
-                        t.get("end", ""), retry, explain_failure(result)))
         else:
             # 旧单任务模式(无 tasks 时)
             reserve = active_account(cfg).get("reserve", {})
@@ -1025,17 +945,8 @@ def run_scheduler(cfg: dict) -> int:
                 log("[第%d次] 预约结果: %s" % (attempt + 1, msg[:250]))
                 data = result.get("DATA", {}) if isinstance(result, dict) else {}
                 if data.get("result") == "success":
-                    notify(cfg, "抢座成功", "%s座号 %s, %s" % (
-                        sid_prefix(cfg), seat.get("title"), msg[:200]))
                     break
                 time.sleep(interval)
-            else:
-                try:
-                    reason = explain_failure(result)
-                except NameError:
-                    reason = "没有可用座位"
-                notify(cfg, "抢座失败", "%s已重试 %d 次仍未成功\n原因: %s" % (
-                    sid_prefix(cfg), retry, reason))
 
 
 # ---------------------------------------------------------------------------
