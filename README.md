@@ -4,7 +4,7 @@
 
 本项目基于蓝航 App 接口实现，灵感来源于 GitHub 上的 [nchu-reserve-seats](https://github.com/Kevin-luhailong/nchu-reserve-seats) 项目，在其基础上做了完善与修改，适配 Windows 系统，并新增图形界面。
 
-> **免责声明**：本项目仅供学习交流使用，不用于盈利。作者就读于前湖校区，暂未适配上海路校区。若项目存在缺陷，欢迎通过 Issue 反馈。
+> **免责声明**：本项目仅供学习交流使用，不用于盈利。作者就读于前湖校区，暂未适配上海路校区。若项目存在缺陷，欢迎通过 Issue 反馈。如果该项目对你有帮助，欢迎 Star 支持。
 >
 > 联系方式：newkyneteasy@163.com
 
