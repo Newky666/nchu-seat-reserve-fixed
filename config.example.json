@@ -1,0 +1,23 @@
+{
+  "accounts": {},
+  "schedule": {
+    "release_time": "22:00:00",
+    "open_time": "08:00",
+    "close_time": "22:00",
+    "retry_count": 5,
+    "retry_interval_sec": 0.5
+  },
+  "notify": {
+    "method": "",
+    "serverchan_key": "",
+    "dingtalk_webhook": "",
+    "email": {
+      "smtp_host": "smtp.qq.com",
+      "smtp_port": 465,
+      "sender": "",
+      "password": "",
+      "receiver": ""
+    }
+  },
+  "current": ""
+}
